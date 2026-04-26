@@ -133,6 +133,24 @@ print(metrics['2024-01']['totals'])
 
 ---
 
+## Despliegue (Render y similares)
+
+Debe escucharse en **`0.0.0.0`** y en el **puerto** que pone el host (`PORT` en Render), no fijo 5050.
+
+- **Comando de inicio (Start Command)**, por ejemplo:  
+  `gunicorn --bind 0.0.0.0:$PORT app:app`  
+  o el `Procfile` de este repositorio (Gunicorn ya está en `requirements.txt`).
+
+- **Build Command:** `pip install -r requirements.txt`
+
+- **Root Directory:** dejá vacío si el repo en GitHub tiene `app.py` en la **raíz** (como ahora). Si usás otra ruta, indicala ahí.
+
+- **Variable de entorno** `SECRET_KEY`: definila en Render (cadena larga y aleatoria) para que las sesiones de login sean fiables.
+
+- Si al abrir el sitio ves *Not found* o error, revisá en **Logs** de Render: suele ser puerto no enlazado o el comando de arranque sin `gunicorn` / sin `--bind 0.0.0.0:$PORT`.
+
+---
+
 ## Próximos pasos para escalar
 
 1. **Base de datos**: reemplazar `_store` (dict en memoria) por SQLite o PostgreSQL

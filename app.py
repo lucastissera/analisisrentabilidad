@@ -289,4 +289,8 @@ def _compute_cumulative(monthly, corp_costs, alloc_method, manual_pct):
     return _compute_period(acc, corp_costs, alloc_method, manual_pct)
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5050)
+    # En Render, RENDER=1 y PORT; fuera, puerto 5050 y depuración activa (salvo FLASK_DEBUG=0).
+    _on_render = os.environ.get("RENDER", "").lower() in ("1", "true", "yes", "on")
+    _port = int(os.environ.get("PORT", 5050))
+    _debug = (not _on_render) and os.environ.get("FLASK_DEBUG", "1").lower() not in ("0", "false", "no")
+    app.run(host="0.0.0.0", port=_port, debug=_debug)
