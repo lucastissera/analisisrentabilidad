@@ -317,6 +317,23 @@ tr.hl td:first-child{color:var(--accent);}
 .period-entry-card .pbtn:hover{border-color:var(--accent);color:var(--accent);}
 .period-entry-card .pbtn.loaded{border-color:var(--green);color:var(--green);}
 
+/* ── Carga por período: bloques por sucursal ── */
+.pf-branch-block{
+  --pf-accent:#2f81f7;
+  margin-bottom:20px;
+  padding:16px 18px;
+  border-radius:10px;
+  border:1px solid var(--border);
+  border-left:4px solid var(--pf-accent);
+  background:var(--surface);
+}
+@supports (background: color-mix(in srgb, red, white)){
+  .pf-branch-block{background:color-mix(in srgb,var(--pf-accent) 10%,var(--surface));}
+}
+.pf-branch-block:last-child{margin-bottom:0;}
+.pf-branch-head{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border);}
+.pf-branch-head b{font-size:13px;}
+
 /* ── PRORRATEO ── */
 .alloc-method-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px;}
 .ae-card{background:var(--surface2);border-radius:7px;padding:10px 12px;
@@ -663,7 +680,7 @@ function toast(msg, type='info', ms=3000){
   const cr=document.getElementById('count-row');
   for(let n=1;n<=8;n++){
     const b=document.createElement('button');
-    b.className='count-btn'+(n===5?' active':'');
+    b.className='count-btn'+(n===1?' active':'');
     b.textContent=n;
     b.onclick=()=>{
       document.querySelectorAll('.count-btn').forEach(x=>x.classList.remove('active'));
@@ -671,7 +688,7 @@ function toast(msg, type='info', ms=3000){
     };
     cr.appendChild(b);
   }
-    CFG.branchCount=5; CFG.allocMethod='ventas'; CFG.periodType='monthly'; CFG.fiscalYearEndMonth=12; CFG.ipcAdjust=false;
+    CFG.branchCount=1; CFG.allocMethod='ventas'; CFG.periodType='monthly'; CFG.fiscalYearEndMonth=12; CFG.ipcAdjust=false;
   buildNameInputs();
 })();
 
@@ -681,7 +698,7 @@ function selectPT(el){
 }
 
 function buildNameInputs(){
-  const n=CFG.branchCount||5;
+  const n=CFG.branchCount||1;
   const grid=document.getElementById('branch-names-grid');
   const existing=Array.from(grid.querySelectorAll('input')).map(i=>i.value);
   grid.innerHTML='';
@@ -704,7 +721,7 @@ function selAlloc(el){
 }
 
 function buildManualSetup(){
-  const n=CFG.branchCount||5;
+  const n=CFG.branchCount||1;
   const names=Array.from(document.querySelectorAll('#branch-names-grid input')).map(i=>i.value);
   const row=document.getElementById('manual-pct-setup');
   row.innerHTML='';
@@ -719,7 +736,7 @@ function buildManualSetup(){
 }
 
 async function launchApp(){
-  const n=CFG.branchCount||5;
+  const n=CFG.branchCount||1;
   CFG.empresa=document.getElementById('cfg-empresa').value||'Mi Empresa';
   CFG.period=document.getElementById('cfg-period').value||String(new Date().getFullYear());
   CFG.fiscalYearEndMonth=parseInt(document.getElementById('cfg-fiscal-end')?.value||'12',10)||12;
@@ -771,7 +788,7 @@ function prefillSetupFromCfg(){
   document.querySelectorAll('.ptype-btn').forEach(function(x){
     x.classList.toggle('active',x.dataset.pt===pt);
   });
-  var n=Math.min(8,Math.max(1,(CFG.branchNames||[]).length||5));
+  var n=Math.min(8,Math.max(1,(CFG.branchNames||[]).length||1));
   document.querySelectorAll('.count-btn').forEach(function(b){
     b.classList.toggle('active',+b.textContent===n);
   });
@@ -1190,6 +1207,33 @@ function generatePeriods(){
 
 function bindCargaEvents(){}
 
+function pfCellValue(bdata,k){
+  let cellVal=DEFAULT_VALS[DATA_KEYS.indexOf(k)];
+  if(cellVal==null) cellVal=0;
+  if(bdata&&bdata[k]!=null&&bdata[k]!==''){
+    const n=Number(bdata[k]);
+    if(Number.isFinite(n)) cellVal=n;
+  }
+  return cellVal;
+}
+
+function bindPfNumericBehavior(inp){
+  inp.addEventListener('focus',function(){
+    const t=this.value.trim();
+    if(t!==''&&Number(t)===0) this.value='';
+  });
+  inp.addEventListener('blur',function(){
+    const t=this.value.trim();
+    if(t===''||t==='-'){
+      this.value='0';
+    }else{
+      const n=parseFloat(t.replace(',','.'));
+      this.value=String(Number.isFinite(n)?n:0);
+    }
+    this.dispatchEvent(new Event('input',{bubbles:true}));
+  });
+}
+
 async function openPeriodForm(period){
   let existingData=null;
   try{
@@ -1209,12 +1253,14 @@ async function openPeriodForm(period){
     ];
     const fieldHtml=sections.map(s=>`<div class="fg"><div class="fg-title">${s.t}</div>
       ${s.keys.map(k=>`<div class="field"><label>${FIELD_LABELS[k]}</label>
-        <input type="number" data-bi="${bi}" data-key="${k}" value="${bdata[k]||DEFAULT_VALS[DATA_KEYS.indexOf(k)]||0}"></div>`).join('')}
+        <input type="number" inputmode="decimal" data-bi="${bi}" data-key="${k}" value="${pfCellValue(bdata,k)}"></div>`).join('')}
     </div>`).join('');
-    return `<div style="margin-bottom:14px;">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px;">
-        <span style="width:9px;height:9px;border-radius:50%;background:${COLORS[bi%COLORS.length]};display:block"></span>
-        <b style="font-size:13px">${bname}</b>
+    const accent=COLORS[bi%COLORS.length];
+    return `<div class="pf-branch-block" style="--pf-accent:${accent}">
+      <div class="pf-branch-head">
+        <span style="width:10px;height:10px;border-radius:50%;background:${accent};display:block;flex-shrink:0"></span>
+        <b>${bname}</b>
+        <span style="font-size:10px;color:var(--muted);margin-left:auto">Sucursal ${bi+1} de ${n}</span>
       </div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">${fieldHtml}</div>
     </div>`;
@@ -1235,6 +1281,7 @@ async function openPeriodForm(period){
 
   // Bind inputs to temp store
   document.querySelectorAll('#pf-branches [data-bi][data-key]').forEach(inp=>{
+    bindPfNumericBehavior(inp);
     inp.addEventListener('input',()=>{
       if(!window._tempPeriodData) window._tempPeriodData={};
       const bi=+inp.dataset.bi, k=inp.dataset.key;
