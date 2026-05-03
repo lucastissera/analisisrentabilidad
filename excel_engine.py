@@ -9,6 +9,8 @@ from openpyxl.styles import (Font, PatternFill, Alignment, Border, Side,
 from openpyxl.utils import get_column_letter
 from openpyxl.styles.numbers import FORMAT_PERCENTAGE_00
 
+from ipc_engine import adjust_monthly_store
+
 # ─── Palette ──────────────────────────────────────────────────────────────────
 P = {
     "navy":    "1A2744",
@@ -53,6 +55,25 @@ FIELD_LABELS = {
     "transacciones": "Transacciones/mes",
 }
 DATA_KEYS = list(FIELD_LABELS.keys())
+
+
+def corp_costs_total(corp):
+    """Suma gastos corporativos sin duplicar marketing_corp / marketing."""
+    if not corp:
+        return 0.0
+    c = dict(corp)
+    sub = 0.0
+    for k, v in c.items():
+        if k in ("marketing", "marketing_corp"):
+            continue
+        if isinstance(v, (int, float)):
+            sub += float(v)
+    if c.get("marketing_corp") is not None:
+        sub += float(c.get("marketing_corp") or 0)
+    elif c.get("marketing") is not None:
+        sub += float(c.get("marketing") or 0)
+    return sub
+
 
 CORP_LABELS = {
     "gerencia":      "Gerencia y administración",
@@ -123,9 +144,9 @@ def _set_col_widths(ws, widths):  # {col_idx: width}
     for col, w in widths.items():
         ws.column_dimensions[get_column_letter(col)].width = w
 
-NUM_FMT   = '#,##0;(#,##0);-'
-PCT_FMT   = '0.0%;(0.0%);-'
-INPUT_FMT = '#,##0'
+NUM_FMT   = '#.##0;(#.##0);-'
+PCT_FMT   = '0,0%;(0,0%);-'
+INPUT_FMT = '#.##0'
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # EXCEL EXPORTER
@@ -133,7 +154,11 @@ INPUT_FMT = '#,##0'
 class ExcelExporter:
     def __init__(self, cfg, monthly_data):
         self.cfg = cfg
-        self.monthly = monthly_data   # {period: [branch_data,...]}
+        self.monthly = (
+            adjust_monthly_store(dict(monthly_data), cfg)
+            if cfg.get("ipcAdjust")
+            else dict(monthly_data)
+        )
         self.branch_names = cfg.get("branchNames", [])
         self.empresa = cfg.get("empresa", "Empresa")
         self.period_type = cfg.get("periodType", "monthly")
@@ -178,13 +203,21 @@ class ExcelExporter:
         _merge_title(ws, 1, 2, 3, f"ANÁLISIS DE RENTABILIDAD — {self.empresa.upper()}", height=40, size=14)
         _merge_title(ws, 2, 2, 3, f"Período: {self.cfg.get('period','')}", bg=P["mid"], size=11, height=24)
 
+        mes_cierre = int(self.cfg.get("fiscalYearEndMonth", 12) or 12)
+        meses = [
+            "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+            "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+        ]
+        fy_label = meses[mes_cierre - 1] if 1 <= mes_cierre <= 12 else str(mes_cierre)
         info = [
             ("Empresa:", self.empresa),
             ("Período:", self.cfg.get("period", "")),
+            ("Cierre de ejercicio (mes):", fy_label),
             ("Tipo de análisis:", "Mensual" if self.period_type == "monthly" else "Anual"),
             ("Sucursales:", ", ".join(self.branch_names)),
             ("Método de prorrateo:", self.alloc_method.capitalize()),
-            ("Gastos corporativos totales:", f"${sum(self.corp.values()):,.0f}"),
+            ("Ajuste IPC:", "Sí (datos exportados al cierre)" if self.cfg.get("ipcAdjust") else "No"),
+            ("Gastos corporativos totales:", f"${corp_costs_total(self.corp):,.0f}".replace(",", "X").replace(".", ",").replace("X", ".")),
             ("Períodos cargados:", str(len(self.monthly))),
             ("Exportado:", __import__("datetime").datetime.now().strftime("%d/%m/%Y %H:%M")),
         ]
@@ -400,7 +433,7 @@ class ExcelExporter:
             branches_for_metrics = self.monthly[periods[0]]
 
         # Compute
-        corp_total = sum(self.corp.values())
+        corp_total = corp_costs_total(self.corp)
         weights = self._alloc_w(branches_for_metrics)
         metrics = []
         for i, b in enumerate(branches_for_metrics[:n]):
@@ -662,7 +695,7 @@ class ExcelTemplateGenerator:
         period_type = self.period_type
         sample_periods = ["2024-01","2024-02","2024-03"] if period_type=="monthly" else ["2024","2025","2026"]
         r = 3
-        sample_vals = [850000,15000,5000,340000,42500,12000,28000,95000,8500,4200,12000,6500,120000,85000,40000,8,180,420]
+        sample_vals = [0] * len(DATA_KEYS)
         for period in sample_periods:
             for b_idx, bname in enumerate(self.branch_names):
                 ws.row_dimensions[r].height = 16
@@ -678,7 +711,7 @@ class ExcelTemplateGenerator:
                 for k_idx, key in enumerate(DATA_KEYS):
                     col = 4 + k_idx
                     factor = 0.9**b_idx
-                    val = round(sample_vals[k_idx] * factor) if k_idx < 15 else max(1, round(sample_vals[k_idx] * factor))
+                    val = round(sample_vals[k_idx] * factor)
                     c3 = ws.cell(row=r, column=col, value=val)
                     c3.font = _font(color="0000FF")
                     c3.fill = _fill(P["yellow"])
@@ -705,9 +738,9 @@ class ExcelTemplateGenerator:
         _merge_title(ws, 1, 2, 3, "GASTOS CORPORATIVOS ANUALES", size=12)
         _header_row(ws, 2, [(2,"CONCEPTO"),(3,"MONTO ($)")], bg=P["mid"])
         corp_defaults = {
-            "gerencia": 180000, "contabilidad": 48000, "sistemas": 36000,
-            "legal": 24000, "marketing_corp": 60000, "logistica": 72000,
-            "seguros": 18000, "otros": 15000,
+            "gerencia": 0, "contabilidad": 0, "sistemas": 0,
+            "legal": 0, "marketing_corp": 0, "logistica": 0,
+            "seguros": 0, "otros": 0,
         }
         r = 3
         for k, label in CORP_LABELS.items():

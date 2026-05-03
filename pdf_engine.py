@@ -11,6 +11,8 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from excel_engine import corp_costs_total
+
 ALLOC_LABELS = {
     "ventas": "Por % de ventas",
     "empleados": "Por Nº de empleados",
@@ -82,12 +84,28 @@ def build_pdf_report(cfg, monthly, metrics) -> io.BytesIO:
     ptype = "Mensual" if cfg.get("periodType", "monthly") == "monthly" else "Anual"
     story.append(Paragraph(f"<b>Período de referencia:</b> {per or '—'}", st_small))
     story.append(Paragraph(f"<b>Tipo de análisis:</b> {ptype}", st_small))
+    mes_cierre = int(cfg.get("fiscalYearEndMonth", 12) or 12)
+    meses_es = [
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+    ]
+    if 1 <= mes_cierre <= 12:
+        story.append(Paragraph(f"<b>Cierre de ejercicio (mes):</b> {meses_es[mes_cierre - 1]}", st_small))
     alloc = ALLOC_LABELS.get(cfg.get("allocMethod", "ventas"), cfg.get("allocMethod", "ventas"))
     story.append(Paragraph(f"<b>Método de prorrateo corporativo:</b> {alloc}", st_small))
     suc = ", ".join(cfg.get("branchNames", [])) or "—"
     story.append(Paragraph(f"<b>Sucursales:</b> {suc}", st_small))
-    corp_total = sum((cfg.get("corpCosts") or {}).values())
+    corp_total = corp_costs_total(cfg.get("corpCosts") or {})
     story.append(Paragraph(f"<b>Gastos corporativos (configurados):</b> $ {_fmt_money(corp_total)}", st_small))
+    if cfg.get("ipcAdjust"):
+        story.append(
+            Paragraph(
+                "<b>Magnitudes monetarias:</b> ajustadas por IPC a moneda del mes de cierre "
+                "de cada ejercicio (serie en <i>data/ipc_argentina.json</i>). "
+                "No incluye gastos corporativos anuales.",
+                st_small,
+            )
+        )
     story.append(Paragraph(f"<b>Generado:</b> {datetime.now().strftime('%d/%m/%Y %H:%M')}", st_small))
     story.append(Spacer(1, 0.4 * cm))
 
@@ -193,7 +211,10 @@ def build_pdf_report(cfg, monthly, metrics) -> io.BytesIO:
     )
     story.append(t2)
     story.append(Spacer(1, 0.4 * cm))
-    story.append(Paragraph("Los importes se expresan en moneda de la empresa (sin ajuste inflacionario).", st_small))
+    story.append(Paragraph(
+        "Los importes en tablas reflejan la configuración actual (nominales o ajustados por IPC, según corresponda).",
+        st_small,
+    ))
 
     doc.build(story)
     buf.seek(0)

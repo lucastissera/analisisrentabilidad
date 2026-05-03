@@ -8,6 +8,12 @@ import json, os, io
 from datetime import datetime, timedelta
 from excel_engine import ExcelExporter, ExcelImporter, ExcelTemplateGenerator
 from pdf_engine import build_pdf_report
+from ipc_engine import (
+    adjust_branches_for_ipc,
+    ipc_restatement_factor,
+    ipc_series_meta,
+    sync_ipc_from_official,
+)
 from auth_users import init_db, create_user, verify_user, ensure_bootstrap_user
 
 app = Flask(__name__)
@@ -113,6 +119,7 @@ def save_month():
     if not period:
         return jsonify({"error": "period required"}), 400
     state["monthly_data"][period] = body.get("branches", [])
+    _maybe_sync_ipc(state)
     return jsonify({"ok": True, "periods": sorted(state["monthly_data"].keys())})
 
 @app.route("/api/data/month/<period>", methods=["DELETE"])
@@ -120,6 +127,45 @@ def delete_month(period):
     state = get_state()
     state["monthly_data"].pop(period, None)
     return jsonify({"ok": True})
+
+
+@app.route("/api/ipc/info", methods=["GET"])
+def ipc_info():
+    return jsonify(ipc_series_meta())
+
+
+def _corp_total(corp):
+    """Evita duplicar marketing vs marketing_corp en la suma."""
+    if not corp:
+        return 0.0
+    c = dict(corp)
+    sub = 0.0
+    for k, v in list(c.items()):
+        if k in ("marketing", "marketing_corp"):
+            continue
+        if isinstance(v, (int, float)):
+            sub += float(v)
+    if c.get("marketing_corp") is not None:
+        sub += float(c.get("marketing_corp") or 0)
+    elif c.get("marketing") is not None:
+        sub += float(c.get("marketing") or 0)
+    return sub
+
+
+def _ipc_sync_interval():
+    return int(os.environ.get("IPC_SYNC_MIN_INTERVAL", "3600"))
+
+
+def _maybe_sync_ipc(state):
+    """Con ajuste IPC activo, verifica/sincroniza la serie oficial al persistir datos."""
+    if not state:
+        return
+    cfg = state.get("config") or {}
+    if cfg.get("ipcAdjust"):
+        sync_ipc_from_official(
+            force=False, min_interval_seconds=_ipc_sync_interval()
+        )
+
 
 def _compute_all_metrics():
     """Métricas por período + acumulado; misma lógica que /api/metrics."""
@@ -130,14 +176,36 @@ def _compute_all_metrics():
     alloc_method = cfg.get("allocMethod", "ventas")
     manual_pct = cfg.get("manualPct", [])
 
+    sync_info = {}
+    if cfg.get("ipcAdjust"):
+        sync_info = sync_ipc_from_official(
+            force=False, min_interval_seconds=_ipc_sync_interval()
+        )
+
     result = {}
+    ipc_on = bool(cfg.get("ipcAdjust"))
     for period, branches in monthly.items():
-        result[period] = _compute_period(branches, corp_costs, alloc_method, manual_pct)
+        adj = adjust_branches_for_ipc(list(branches), period, cfg)
+        block = _compute_period(adj, corp_costs, alloc_method, manual_pct)
+        block["ipcCoeficiente"] = (
+            ipc_restatement_factor(period, cfg) if ipc_on else None
+        )
+        result[period] = block
 
     if len(monthly) > 1:
-        result["__cumulative__"] = _compute_cumulative(
-            monthly, corp_costs, alloc_method, manual_pct
+        cum = _compute_cumulative(
+            monthly, corp_costs, alloc_method, manual_pct, cfg
         )
+        cum["ipcCoeficiente"] = None
+        result["__cumulative__"] = cum
+
+    if ipc_on:
+        meta_ipc = ipc_series_meta()
+        result["__ipc__"] = {
+            "sync": sync_info,
+            "ultimoMesSerie": meta_ipc.get("lastMonth"),
+        }
+
     return cfg, monthly, result
 
 
@@ -152,6 +220,10 @@ def export_excel():
     state = get_state()
     cfg = state.get("config", {}) or {}
     monthly = state.get("monthly_data", {})
+    if cfg.get("ipcAdjust"):
+        sync_ipc_from_official(
+            force=False, min_interval_seconds=_ipc_sync_interval()
+        )
     exporter = ExcelExporter(cfg, monthly)
     buf = exporter.build()
     empresa = cfg.get("empresa", "Empresa")
@@ -163,6 +235,11 @@ def export_excel():
 @app.route("/api/export/pdf", methods=["GET"])
 def export_pdf():
     state = get_state()
+    cfg = state.get("config", {}) or {}
+    if cfg.get("ipcAdjust"):
+        sync_ipc_from_official(
+            force=False, min_interval_seconds=_ipc_sync_interval()
+        )
     cfg, monthly, metrics = _compute_all_metrics()
     buf = build_pdf_report(cfg, monthly, metrics)
     empresa = cfg.get("empresa", "Empresa")
@@ -200,6 +277,7 @@ def import_excel():
         if result.get("config"):
             if not state.get("config"):
                 state["config"] = result["config"]
+        _maybe_sync_ipc(state)
         return jsonify({
             "ok": True,
             "imported_periods": sorted(result["monthly_data"].keys()),
@@ -252,7 +330,7 @@ def _calc_branch(b, corp_share):
     }
 
 def _compute_period(branches, corp_costs, alloc_method, manual_pct):
-    corp_total = sum(corp_costs.values())
+    corp_total = _corp_total(corp_costs)
     weights = _alloc_weights(branches, alloc_method, manual_pct)
     results = [_calc_branch(b, corp_total * weights[i]) for i, b in enumerate(branches)]
     vnt = sum(r["vn"] for r in results)
@@ -270,13 +348,13 @@ def _compute_period(branches, corp_costs, alloc_method, manual_pct):
         }
     }
 
-def _compute_cumulative(monthly, corp_costs, alloc_method, manual_pct):
+def _compute_cumulative(monthly, corp_costs, alloc_method, manual_pct, cfg):
     """Sum all numeric fields across periods, then recompute metrics."""
-    from collections import defaultdict
     n = None
     acc = None
+    cfg = cfg or {}
     for period in sorted(monthly.keys()):
-        branches = monthly[period]
+        branches = adjust_branches_for_ipc(list(monthly[period]), period, cfg)
         if n is None:
             n = len(branches)
             acc = [{} for _ in range(n)]
@@ -285,7 +363,7 @@ def _compute_cumulative(monthly, corp_costs, alloc_method, manual_pct):
                 if isinstance(v, (int, float)):
                     acc[i][k] = acc[i].get(k, 0) + v
                 else:
-                    acc[i][k] = v   # strings: keep last
+                    acc[i][k] = v  # strings: keep last
     return _compute_period(acc, corp_costs, alloc_method, manual_pct)
 
 if __name__ == "__main__":

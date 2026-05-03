@@ -377,8 +377,19 @@ tr.hl td:first-child{color:var(--accent);}
     <div class="setup-section">
       <div class="setup-label">Empresa y período</div>
       <div class="period-row">
-        <input class="period-inp" id="cfg-empresa" value="Mi Empresa S.A." placeholder="Nombre de la empresa">
-        <input class="period-inp" id="cfg-period" value="2024" placeholder="Ej: 2024 o Enero–Dic 2024">
+        <input class="period-inp" id="cfg-empresa" value="" placeholder="Nombre de la empresa">
+        <input class="period-inp" id="cfg-period" value="" placeholder="Año de cierre del ejercicio (ej. 2025)">
+      </div>
+      <div class="corp-field" style="margin-top:12px;max-width:100%">
+        <label>Mes de cierre del ejercicio fiscal</label>
+        <select id="cfg-fiscal-end" class="period-inp" style="margin-top:4px;cursor:pointer">
+          <option value="1">Enero</option><option value="2">Febrero</option><option value="3">Marzo</option>
+          <option value="4">Abril</option><option value="5">Mayo</option><option value="6">Junio</option>
+          <option value="7">Julio</option><option value="8">Agosto</option><option value="9">Septiembre</option>
+          <option value="10">Octubre</option><option value="11">Noviembre</option>
+          <option value="12" selected>Diciembre</option>
+        </select>
+        <p style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.45">Los períodos mensuales en <b>Carga por período</b> van desde el mes siguiente al cierre del ejercicio anterior hasta este mes de cierre (12 meses), según el año de cierre ingresado.</p>
       </div>
     </div>
 
@@ -420,14 +431,14 @@ tr.hl td:first-child{color:var(--accent);}
     <div class="setup-section">
       <div class="setup-label">Gastos corporativos anuales ($)</div>
       <div class="corp-grid">
-        <div class="corp-field"><label>Gerencia y administración</label><input type="number" id="corp-gerencia" value="180000"></div>
-        <div class="corp-field"><label>Contabilidad y auditoría</label><input type="number" id="corp-contabilidad" value="48000"></div>
-        <div class="corp-field"><label>Sistemas y tecnología</label><input type="number" id="corp-sistemas" value="36000"></div>
-        <div class="corp-field"><label>Legal y compliance</label><input type="number" id="corp-legal" value="24000"></div>
-        <div class="corp-field"><label>Marketing corporativo</label><input type="number" id="corp-marketing" value="60000"></div>
-        <div class="corp-field"><label>Logística central</label><input type="number" id="corp-logistica" value="72000"></div>
-        <div class="corp-field"><label>Seguros</label><input type="number" id="corp-seguros" value="18000"></div>
-        <div class="corp-field"><label>Otros gastos centrales</label><input type="number" id="corp-otros" value="15000"></div>
+        <div class="corp-field"><label>Gerencia y administración</label><input type="number" id="corp-gerencia" value="0"></div>
+        <div class="corp-field"><label>Contabilidad y auditoría</label><input type="number" id="corp-contabilidad" value="0"></div>
+        <div class="corp-field"><label>Sistemas y tecnología</label><input type="number" id="corp-sistemas" value="0"></div>
+        <div class="corp-field"><label>Legal y compliance</label><input type="number" id="corp-legal" value="0"></div>
+        <div class="corp-field"><label>Marketing corporativo</label><input type="number" id="corp-marketing" value="0"></div>
+        <div class="corp-field"><label>Logística central</label><input type="number" id="corp-logistica" value="0"></div>
+        <div class="corp-field"><label>Seguros</label><input type="number" id="corp-seguros" value="0"></div>
+        <div class="corp-field"><label>Otros gastos centrales</label><input type="number" id="corp-otros" value="0"></div>
       </div>
     </div>
 
@@ -443,6 +454,7 @@ tr.hl td:first-child{color:var(--accent);}
       <span class="topbar-title" id="app-title">Rentabilidad</span>
       <span class="topbar-chip" id="app-period-chip"></span>
       <span class="topbar-chip" id="app-type-chip"></span>
+      <span class="topbar-chip" id="ipc-chip" style="display:none;border-color:var(--amber);color:var(--amber);background:var(--amber-dim)">IPC</span>
       <span class="auth-chip" id="auth-user-label" title=""></span>
     </div>
     <div class="topbar-right">
@@ -450,6 +462,7 @@ tr.hl td:first-child{color:var(--accent);}
         <button type="button" class="theme-btn" data-set="light" title="Modo claro">☀️</button>
         <button type="button" class="theme-btn" data-set="dark" title="Modo oscuro">🌙</button>
       </div>
+      <button class="tbtn" type="button" id="btn-ipc-toggle" onclick="toggleIpcAdjust()" title="Ajustar magnitudes monetarias por IPC al cierre de cada ejercicio">📈 Ajuste IPC</button>
       <button class="tbtn" onclick="openImportModal()">📥 Importar Excel</button>
       <button class="tbtn success" onclick="exportExcel()">📤 Excel</button>
       <button class="tbtn success" onclick="exportPdf()">📄 PDF</button>
@@ -579,11 +592,21 @@ async function routeAfterAuth(me) {
   var saved = await cfgRes.json();
   if (saved && Object.keys(saved).length && saved.empresa) {
     CFG = Object.assign(CFG, saved);
-    if (!CFG.manualPct) CFG.manualPct = (CFG.branchNames || []).map(function () { return 20; });
+    if (CFG.fiscalYearEndMonth == null) CFG.fiscalYearEndMonth = 12;
+    if (CFG.ipcAdjust == null) CFG.ipcAdjust = false;
+    if (!CFG.manualPct || CFG.manualPct.length !== (CFG.branchNames || []).length) {
+      var nb = Math.max(1, (CFG.branchNames || []).length);
+      var base = Math.floor((1000 / nb)) / 10;
+      CFG.manualPct = (CFG.branchNames || []).map(function (_, i) {
+        return i < nb - 1 ? base : Math.round((100 - base * (nb - 1)) * 10) / 10;
+      });
+    }
     document.getElementById("setup-screen").style.display = "none";
     document.getElementById("app-title").textContent = CFG.empresa;
     document.getElementById("app-period-chip").textContent = CFG.period || "";
     document.getElementById("app-type-chip").textContent = CFG.periodType === "monthly" ? "Mensual" : "Anual";
+    if (typeof updateIpcChip === "function") updateIpcChip();
+    if (typeof updateIpcButton === "function") updateIpcButton();
     startApp();
     await loadMetricsAndShow("dashboard");
   } else {
@@ -613,7 +636,7 @@ const MONTHS_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Ago
 const ALLOC_LABELS = {ventas:'% Ventas',empleados:'Empleados',m2:'M²',igualitario:'Igualitario',transacciones:'Transacciones',manual:'Manual'};
 const DATA_KEYS = ['ventasBrutas','devoluciones','otrosIngresos','cmv','moDirecta','materiales','alquiler','sueldos','servicios','mantenimiento','marketing','admGeneral','inventario','equipamiento','mobiliario','empleados','m2','transacciones'];
 const FIELD_LABELS = {ventasBrutas:'Ventas brutas ($)',devoluciones:'Devoluciones ($)',otrosIngresos:'Otros ingresos ($)',cmv:'CMV / Mercadería ($)',moDirecta:'Mano de obra directa ($)',materiales:'Materiales ($)',alquiler:'Alquiler ($)',sueldos:'Sueldos y cargas ($)',servicios:'Servicios ($)',mantenimiento:'Mantenimiento ($)',marketing:'Marketing local ($)',admGeneral:'Adm. general ($)',inventario:'Inventario prom. ($)',equipamiento:'Equipamiento ($)',mobiliario:'Mobiliario ($)',empleados:'Nº empleados',m2:'M² del local',transacciones:'Transacciones/mes'};
-const DEFAULT_VALS = [850000,15000,5000,340000,42500,12000,28000,95000,8500,4200,12000,6500,120000,85000,40000,8,180,420];
+const DEFAULT_VALS = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
 
 let CFG = {};
 let METRICS = {};      // {period: computed} — loaded from API
@@ -621,8 +644,10 @@ let CURRENT_VIEW = 'dashboard';
 let CURRENT_PERIOD = null; // period key or '__cumulative__'
 let SELECTED_FILE = null;
 
-// ═══════════════════════════════════════════════════════
-// TOAST
+/** Claves de período con datos (excluye __cumulative__ y metadatos __ipc__). */
+function dataPeriodKeys(){
+  return Object.keys(METRICS).filter(p=>p!=='__cumulative__'&&p!=='__ipc__');
+}
 // ═══════════════════════════════════════════════════════
 function toast(msg, type='info', ms=3000){
   const t=document.createElement('div');
@@ -646,7 +671,7 @@ function toast(msg, type='info', ms=3000){
     };
     cr.appendChild(b);
   }
-  CFG.branchCount=5; CFG.allocMethod='ventas'; CFG.periodType='monthly';
+    CFG.branchCount=5; CFG.allocMethod='ventas'; CFG.periodType='monthly'; CFG.fiscalYearEndMonth=12; CFG.ipcAdjust=false;
   buildNameInputs();
 })();
 
@@ -696,7 +721,8 @@ function buildManualSetup(){
 async function launchApp(){
   const n=CFG.branchCount||5;
   CFG.empresa=document.getElementById('cfg-empresa').value||'Mi Empresa';
-  CFG.period=document.getElementById('cfg-period').value||'2024';
+  CFG.period=document.getElementById('cfg-period').value||String(new Date().getFullYear());
+  CFG.fiscalYearEndMonth=parseInt(document.getElementById('cfg-fiscal-end')?.value||'12',10)||12;
   CFG.periodType=document.querySelector('.ptype-btn.active')?.dataset.pt||'monthly';
   CFG.allocMethod=document.querySelector('#alloc-method-setup .alloc-card.active')?.dataset.m||'ventas';
   CFG.branchNames=Array.from(document.querySelectorAll('#branch-names-grid input')).map((i,idx)=>i.value||`Sucursal ${idx+1}`);
@@ -712,11 +738,12 @@ async function launchApp(){
     contabilidad:+document.getElementById('corp-contabilidad').value||0,
     sistemas:+document.getElementById('corp-sistemas').value||0,
     legal:+document.getElementById('corp-legal').value||0,
-    marketing:+document.getElementById('corp-marketing').value||0,
+    marketing_corp:+document.getElementById('corp-marketing').value||0,
     logistica:+document.getElementById('corp-logistica').value||0,
     seguros:+document.getElementById('corp-seguros').value||0,
     otros:+document.getElementById('corp-otros').value||0,
   };
+  if(CFG.ipcAdjust==null) CFG.ipcAdjust=false;
   // Save config to API
   await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(CFG)});
   startApp();
@@ -728,6 +755,8 @@ function startApp(){
   document.getElementById('app-title').textContent=CFG.empresa;
   document.getElementById('app-period-chip').textContent=CFG.period;
   document.getElementById('app-type-chip').textContent=CFG.periodType==='monthly'?'Mensual':'Anual';
+  updateIpcChip();
+  updateIpcButton();
   buildSidebar();
   loadMetricsAndShow('dashboard');
 }
@@ -763,11 +792,15 @@ function prefillSetupFromCfg(){
     }
   }
   var C=CFG.corpCosts||{};
-  var ids={gerencia:'corp-gerencia',contabilidad:'corp-contabilidad',sistemas:'corp-sistemas',legal:'corp-legal',marketing:'corp-marketing',logistica:'corp-logistica',seguros:'corp-seguros',otros:'corp-otros'};
+  var ids={gerencia:'corp-gerencia',contabilidad:'corp-contabilidad',sistemas:'corp-sistemas',legal:'corp-legal',marketing_corp:'corp-marketing',logistica:'corp-logistica',seguros:'corp-seguros',otros:'corp-otros'};
   for (var k in ids) {
     var el=document.getElementById(ids[k]);
-    if (el && C[k]!=null) el.value=C[k];
+    var val=C[k];
+    if ((k==='marketing_corp') && (val==null) && C.marketing!=null) val=C.marketing;
+    if (el && val!=null) el.value=val;
   }
+  var fyEl=document.getElementById('cfg-fiscal-end');
+  if (fyEl && CFG.fiscalYearEndMonth!=null) fyEl.value=String(CFG.fiscalYearEndMonth);
 }
 
 function goSetup(){
@@ -782,8 +815,8 @@ function goSetup(){
 async function loadMetricsAndShow(view){
   const res=await fetch('/api/metrics');
   METRICS=await res.json();
-  const periods=Object.keys(METRICS).filter(p=>p!=='__cumulative__').sort();
-  if(!CURRENT_PERIOD||!METRICS[CURRENT_PERIOD]){
+  const periods=dataPeriodKeys().sort();
+  if(!CURRENT_PERIOD||!METRICS[CURRENT_PERIOD]||CURRENT_PERIOD==='__ipc__'){
     CURRENT_PERIOD=periods.length?periods[periods.length-1]:null;
   }
   showView(view||CURRENT_VIEW);
@@ -838,7 +871,7 @@ function showBranchDetail(idx, btn){
 // PERIOD BAR
 // ═══════════════════════════════════════════════════════
 function periodBar(){
-  const periods=Object.keys(METRICS).filter(p=>p!=='__cumulative__').sort();
+  const periods=dataPeriodKeys().sort();
   const hasCumul=periods.length>1&&METRICS['__cumulative__'];
   if(!periods.length) return `<div style="font-size:12px;color:var(--muted);margin-bottom:16px">Sin datos cargados. Usá <b>Carga por período</b> para agregar datos.</div>`;
   const chips=periods.map(p=>`<span class="period-chip ${CURRENT_PERIOD===p?'active':''}" onclick="setPeriod('${p}')">${fmtPeriodLabel(p)}</span>`).join('');
@@ -870,12 +903,50 @@ function allocBanner(){
 }
 function quickAlloc(m){CFG.allocMethod=m;fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(CFG)});loadMetricsAndShow(CURRENT_VIEW);}
 
+async function toggleIpcAdjust(){
+  CFG.ipcAdjust=!CFG.ipcAdjust;
+  try{
+    const res=await fetch('/api/ipc/info');
+    const info=await res.json();
+    if(CFG.ipcAdjust&&(!info.count)){
+      CFG.ipcAdjust=false;
+      toast('No hay serie IPC en data/ipc_argentina.json','error');
+      updateIpcChip();updateIpcButton();
+      return;
+    }
+  }catch(e){}
+  await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(CFG)});
+  updateIpcChip();
+  updateIpcButton();
+  await loadMetricsAndShow(CURRENT_VIEW);
+  toast(CFG.ipcAdjust?'Datos monetarios ajustados por IPC al cierre de cada ejercicio. Gastos corporativos sin ajustar.':'Vista en valores nominales cargados','info',4000);
+}
+function updateIpcChip(){
+  const el=document.getElementById('ipc-chip');
+  if(!el)return;
+  el.style.display=CFG.ipcAdjust?'inline-block':'none';
+}
+function updateIpcButton(){
+  const b=document.getElementById('btn-ipc-toggle');
+  if(!b)return;
+  b.classList.toggle('primary',!!CFG.ipcAdjust);
+  b.setAttribute('aria-pressed',CFG.ipcAdjust?'true':'false');
+}
+
 // ═══════════════════════════════════════════════════════
-// FORMAT
+// FORMAT (es-AR: miles punto, decimales coma)
 // ═══════════════════════════════════════════════════════
-const fmtM=n=>{if(Math.abs(n)>=1e6)return '$'+(n/1e6).toFixed(1)+'M';if(Math.abs(n)>=1000)return '$'+(n/1000).toFixed(0)+'k';return '$'+Math.round(n).toLocaleString('es-AR');};
-const fmtF=n=>'$'+Math.round(n).toLocaleString('es-AR');
-const fmtP=n=>(n*100).toFixed(1)+'%';
+const fmtNumAr=(n,frac=0)=>{
+  if(n==null||Number.isNaN(n)) return '—';
+  return new Intl.NumberFormat('es-AR',{minimumFractionDigits:frac,maximumFractionDigits:frac}).format(n);
+};
+const fmtM=n=>{
+  if(Math.abs(n)>=1e6) return '$'+fmtNumAr(n/1e6,1)+'M';
+  if(Math.abs(n)>=1000) return '$'+fmtNumAr(n/1000,0)+'k';
+  return '$'+fmtNumAr(Math.round(n),0);
+};
+const fmtF=n=>'$'+fmtNumAr(Math.round(n),0);
+const fmtP=n=>fmtNumAr(n*100,1)+'%';
 function badge(v,g,y){const c=v>=g?'bg':v>=y?'ba':'br';return `<span class="${c}">${fmtP(v)}</span>`;}
 function badgeMb(v){return badge(v,.35,.20);}
 function badgeEb(v){return badge(v,.15,.05);}
@@ -907,12 +978,12 @@ function renderDashboard(){
   const maxWf=Math.max(...wfData.map(s=>Math.abs(s.v)),1);
   const wfBars=wfData.map(s=>{const h=Math.round(Math.abs(s.v)/maxWf*115);return `<div class="wf-col"><span class="wf-amt" style="color:${s.c}">${fmtM(s.v)}</span><div class="wf-bar" style="height:${h}px;background:${s.c};opacity:.85"></div><span class="wf-lbl">${s.l.replace('\n','<br>')}</span></div>`;}).join('');
 
-  return `${periodBar()}${allocBanner()}
+  return `${periodBar()}${allocBanner()}${ipcAuditStrip()}
   <div class="kpi-grid">
     <div class="kpi-card"><div class="kpi-top"><span class="kpi-label">Ventas Netas</span><span class="kpi-icon">💰</span></div><div class="kpi-val">${fmtM(totals.vn)}</div><div class="kpi-sub">${fmtF(totals.vn)}</div><div class="kpi-bar" style="background:#2f81f7"></div></div>
     <div class="kpi-card"><div class="kpi-top"><span class="kpi-label">% Margen Bruto</span><span class="kpi-icon">📈</span></div><div class="kpi-val" style="color:${semC(totals.pctMb,.35,.20)}">${fmtP(totals.pctMb)}</div><div class="kpi-sub">${fmtM(totals.mb)} en valor</div><div class="kpi-bar" style="background:var(--green)"></div></div>
     <div class="kpi-card"><div class="kpi-top"><span class="kpi-label">EBITDA Neto</span><span class="kpi-icon">⚡</span></div><div class="kpi-val" style="color:${semC(totals.pctEbitdaNeto,.15,.05)}">${fmtP(totals.pctEbitdaNeto)}</div><div class="kpi-sub">Con corporativos (${fmtM(totals.corpTotal)})</div><div class="kpi-bar" style="background:var(--amber)"></div></div>
-    <div class="kpi-card"><div class="kpi-top"><span class="kpi-label">Períodos cargados</span><span class="kpi-icon">📅</span></div><div class="kpi-val">${Object.keys(METRICS).filter(p=>p!=='__cumulative__').length}</div><div class="kpi-sub">Tipo: ${CFG.periodType==='monthly'?'Mensual':'Anual'}</div><div class="kpi-bar" style="background:var(--purple)"></div></div>
+    <div class="kpi-card"><div class="kpi-top"><span class="kpi-label">Períodos cargados</span><span class="kpi-icon">📅</span></div><div class="kpi-val">${dataPeriodKeys().length}</div><div class="kpi-sub">Tipo: ${CFG.periodType==='monthly'?'Mensual':'Anual'}</div><div class="kpi-bar" style="background:var(--purple)"></div></div>
   </div>
   <div class="charts-row">
     <div class="card"><div class="card-title">% Margen Bruto por sucursal</div>${barsMb}</div>
@@ -931,10 +1002,13 @@ function renderComparativo(){
   const ths=CFG.branchNames.map((n,i)=>`<th style="color:${COLORS[i%COLORS.length]}">${n}</th>`).join('')+'<th>TOTAL</th>';
   function row(lbl,fn,tot,cls=''){return `<tr class="${cls}"><td>${lbl}</td>${branches.map((_,i)=>`<td>${fn(branches[i],i)}</td>`).join('')}<td>${tot}</td></tr>`;}
   function sep(l){return `<tr class="sep"><td colspan="${CFG.branchNames.length+2}">${l}</td></tr>`;}
-  return `${periodBar()}${allocBanner()}
+  return `${periodBar()}${allocBanner()}${ipcAuditStrip()}
   <div class="tbl-wrap"><table>
     <thead><tr><th>Concepto</th>${ths}</tr></thead>
     <tbody>
+      ${CFG.ipcAdjust?`${sep('IPC · Reexpresión a moneda de cierre')}<tr><td>Coeficiente aplicado (2 dec.)</td>${branches.map(()=>'<td style="color:var(--muted)">—</td>').join('')}<td style="font-family:\'JetBrains Mono\',monospace;font-weight:600">${CURRENT_PERIOD==='__cumulative__'
+        ? '(varía por mes)'
+        : (typeof D.ipcCoeficiente==='number'?fmtNumAr(D.ipcCoeficiente,2):'—')}</td></tr>`:''}
       ${sep('INGRESOS')}
       ${row('Ventas Netas ($)',r=>fmtF(r.vn),fmtF(totals.vn))}
       ${sep('MARGEN BRUTO')}
@@ -990,7 +1064,7 @@ function renderSemaforo(){
       </div>
     </div>`;
   }).join('');
-  return `${periodBar()}${allocBanner()}<div class="sem-grid" style="grid-template-columns:repeat(${cols},1fr)">${cards}</div>
+  return `${periodBar()}${allocBanner()}${ipcAuditStrip()}<div class="sem-grid" style="grid-template-columns:repeat(${cols},1fr)">${cards}</div>
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px;font-size:10px;color:var(--muted);line-height:1.8;">
     🟢 <b>Verde:</b> Margen Bruto &gt; 35% | EBITDA &gt; 15% | ROA &gt; 10% &nbsp;|&nbsp;
     🟡 <b>Amarillo:</b> Margen 20–35% | EBITDA 5–15% | ROA 5–10% &nbsp;|&nbsp;
@@ -1032,7 +1106,7 @@ function renderProrrateo(){
 
   // Need raw branch data to compute weights per method
   // We'll just show distribution percentages derived from stored metrics
-  const periods=Object.keys(METRICS).filter(p=>p!=='__cumulative__').sort();
+  const periods=dataPeriodKeys().sort();
   const lastPeriod=periods[periods.length-1];
 
   const ths=allMethods.map(m=>`<th>${ALLOC_LABELS[m]}</th>`).join('')+'<th>Manual</th>';
@@ -1052,7 +1126,7 @@ function renderProrrateo(){
   }).join('');
 
   return `<div class="alloc-method-grid">${cards}</div>${manualEditor}
-  ${periodBar()}
+  ${periodBar()}${ipcAuditStrip()}
   <div style="font-size:11px;color:var(--muted);margin-bottom:9px">Total corporativos: <b style="color:var(--text)">${fmtF(corp)}</b> — Comparativa de asignación por método (% / monto $):</div>
   <div class="tbl-wrap"><table><thead><tr><th>Sucursal</th>${ths}</tr></thead><tbody>${tblRows}</tbody></table></div>
   <div style="font-size:9px;color:var(--muted2);margin-top:6px">Columna activa resaltada en azul. Hacé clic en cualquier método para activarlo.</div>`;
@@ -1075,7 +1149,7 @@ function computeWeightForMethod(method, idx){
 // RENDER CARGA POR PERÍODO
 // ═══════════════════════════════════════════════════════
 function renderCarga(){
-  const periods=Object.keys(METRICS).filter(p=>p!=='__cumulative__').sort();
+  const periods=dataPeriodKeys().sort();
   // Generate period list based on CFG.period and type
   const allPeriods=generatePeriods();
   const cards=allPeriods.map(p=>{
@@ -1088,26 +1162,41 @@ function renderCarga(){
   }).join('');
 
   return `<div class="page-title">Carga de datos por período</div>
-  <p style="font-size:12px;color:var(--muted);margin-bottom:16px">Tipo: <b>${CFG.periodType==='monthly'?'Mensual':'Anual'}</b>. Cada período se acumula automáticamente en el sistema.</p>
+  <p style="font-size:12px;color:var(--muted);margin-bottom:16px">Tipo: <b>${CFG.periodType==='monthly'?'Mensual':'Anual'}</b>. Ejercicio fiscal que cierra en <b>${MONTHS_ES[(CFG.fiscalYearEndMonth||12)-1]}</b> · Año de cierre: <b>${CFG.period||'—'}</b>. Cada período se acumula automáticamente en el sistema.</p>
+  ${CFG.ipcAdjust?ipcAuditStrip():''}
   <div class="period-entry-grid">${cards}</div>
   <div id="period-form-area"></div>`;
 }
 
-function generatePeriods(){
-  const year=parseInt(CFG.period)||2024;
-  if(CFG.periodType==='annual'){
-    return [String(year),String(year+1),String(year+2)];
-  }
-  // Monthly: generate 12 months for the base year
+function fiscalYearMonthList(closeYear,closeMonth){
   const months=[];
-  for(let m=1;m<=12;m++) months.push(`${year}-${String(m).padStart(2,'0')}`);
+  let y=closeYear,m=closeMonth;
+  for(let i=0;i<12;i++){
+    months.unshift(`${y}-${String(m).padStart(2,'0')}`);
+    m-=1;
+    if(m<1){m=12;y-=1;}
+  }
   return months;
+}
+function generatePeriods(){
+  const digits=String(CFG.period||'').replace(/\D/g,'');
+  const closeYear=parseInt(digits||String(new Date().getFullYear()),10);
+  const closeMonth=Math.min(12,Math.max(1,parseInt(CFG.fiscalYearEndMonth,10)||12));
+  if(CFG.periodType==='annual'){
+    return [String(closeYear),String(closeYear+1),String(closeYear+2)];
+  }
+  return fiscalYearMonthList(closeYear,closeMonth);
 }
 
 function bindCargaEvents(){}
 
-function openPeriodForm(period){
-  const existingData=getMonthlyCachedData(period);
+async function openPeriodForm(period){
+  let existingData=null;
+  try{
+    const dr=await fetch('/api/data');
+    const all=await dr.json();
+    if(all&&all[period]) existingData=all[period];
+  }catch(e){}
   const n=CFG.branchNames.length;
   const branchForms=CFG.branchNames.map((bname,bi)=>{
     const bdata=existingData?existingData[bi]:{};
@@ -1189,13 +1278,6 @@ async function deletePeriod(period){
   }
 }
 
-function getMonthlyCachedData(period){
-  // We don't cache locally — the metrics API gives us what we need
-  // For the form pre-fill, we use DEFAULT_VALS if no data
-  return null;
-}
-
-// ═══════════════════════════════════════════════════════
 // BRANCH DETAIL
 // ═══════════════════════════════════════════════════════
 function renderBranchDetail(idx){
@@ -1212,7 +1294,7 @@ function renderBranchDetail(idx){
   const wfBars=wfData.map(s=>{const h=Math.round(Math.abs(s.v)/maxWf*100);return `<div class="wf-col"><span class="wf-amt" style="color:${s.c}">${fmtM(s.v)}</span><div class="wf-bar" style="height:${h}px;background:${s.c};opacity:.85"></div><span class="wf-lbl">${s.l}</span></div>`;}).join('');
   const kpis=[['Venta/Empleado',fmtF(r.ventaXemp),'👤'],['Venta/M²',fmtF(r.ventaXm2),'📐'],
     ['Ticket Promedio',fmtF(r.ticket),'🛒'],['Punto de Equilibrio',fmtF(r.pe),'⚖️'],['ROA',fmtP(r.roa),'📊']];
-  return `${periodBar()}
+  return `${periodBar()}${ipcAuditStrip()}
   <div style="display:flex;align-items:center;gap:11px;margin-bottom:18px;">
     <div style="width:11px;height:38px;border-radius:3px;background:${col}"></div>
     <div><div style="font-size:19px;font-weight:700">${CFG.branchNames[idx]}</div>
@@ -1240,6 +1322,36 @@ function getCurrent(){
   return METRICS[CURRENT_PERIOD];
 }
 
+/** Franja de auditoría IPC: coef. del período + estado de sincronización con INDEC. */
+function ipcAuditStrip(){
+  if(!CFG.ipcAdjust) return '';
+  const D=getCurrent();
+  let coefHtml;
+  if(CURRENT_PERIOD==='__cumulative__'){
+    coefHtml='<span style="color:var(--muted);font-size:10px">El coeficiente cambia mes a mes — seleccioná un período en la barra superior.</span>';
+  }else if(D&&typeof D.ipcCoeficiente==='number'){
+    coefHtml='<span style="font-family:\'JetBrains Mono\',monospace;color:var(--text);font-weight:600">'+fmtNumAr(D.ipcCoeficiente,2)+'</span>';
+  }else{
+    coefHtml='<span style="color:var(--muted)">—</span>';
+  }
+  const ix=METRICS.__ipc__;
+  let sub='';
+  if(ix&&ix.sync){
+    const s=ix.sync;
+    if(s.skipped&&s.reason==='interval'){
+      const h=((s.min_interval_seconds||3600)/3600);
+      sub='Sin nueva descarga: verificación reciente (intervalo '+fmtNumAr(h,1)+' h). Los índices oficiales pisan el archivo al sincronizar.';
+    }else if(s.ok&&!s.skipped){
+      sub='Índices verificados con INDEC. Último mes en CSV: <b>'+(s.ultimo_mes_oficial||ix.ultimoMesSerie||'—')+'</b>. Meses manuales en archivo que no estén en el CSV se conservan.';
+    }else if(!s.ok){
+      const err=String(s.error||'error').replace(/</g,'');
+      sub='<span style="color:var(--red)">No se pudo descargar la serie oficial: '+err+'</span> — se usan los índices del archivo local.';
+    }
+  }
+  if(!sub) sub='Con ajuste IPC activo, al cargar estas pantallas o exportar Excel/PDF se intenta sincronizar la serie 145.3 (INDEC) según el intervalo configurado (variable de entorno IPC_SYNC_MIN_INTERVAL, por defecto 3600 s).';
+  return '<div style="font-size:11px;color:var(--muted);margin-bottom:14px;padding:10px 14px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);line-height:1.55;"><span style="color:var(--amber);font-weight:700">IPC</span> · Coeficiente del período (2 decimales): '+coefHtml+'<div style="font-size:10px;margin-top:6px;opacity:.95">'+sub+'</div></div>';
+}
+
 function updManualPct(i,val){
   if(!CFG.manualPct) CFG.manualPct=CFG.branchNames.map(()=>Math.round(100/CFG.branchNames.length));
   CFG.manualPct[i]=parseFloat(val)||0;
@@ -1260,7 +1372,7 @@ async function applyManualPct(){
 // EXCEL EXPORT / IMPORT
 // ═══════════════════════════════════════════════════════
 async function exportExcel(){
-  const periods=Object.keys(METRICS).filter(p=>p!=='__cumulative__');
+  const periods=dataPeriodKeys();
   if(!periods.length){toast('No hay datos para exportar. Cargá al menos un período.','error');return;}
   toast('Generando Excel…','info');
   const link=document.createElement('a');
@@ -1268,7 +1380,7 @@ async function exportExcel(){
 }
 
 async function exportPdf(){
-  const periods=Object.keys(METRICS).filter(p=>p!=='__cumulative__');
+  const periods=dataPeriodKeys();
   if(!periods.length){toast('No hay datos para el PDF. Cargá al menos un período.','error');return;}
   toast('Generando PDF…','info');
   const link=document.createElement('a');
